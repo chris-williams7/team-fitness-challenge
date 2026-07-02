@@ -1,0 +1,20 @@
+{
+  "name": "team-fitness-challenge",
+  "version": "1.0.0",
+  "description": "Daily fitness challenge tracker for teams",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build": "echo 'No build step needed'"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "better-sqlite3": "^9.6.0",
+    "bcryptjs": "^2.4.3",
+    "express-session": "^1.17.3",
+    "ejs": "^3.1.9"
+  }
+}

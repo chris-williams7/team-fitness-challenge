@@ -1,0 +1,21 @@
+<%- include('header', { active: 'admin' }) %>
+<h1>⚙️ Admin Panel</h1>
+<div class="card">
+  <h2>Create Challenge</h2>
+  <form method="POST" action="/admin/create-challenge">
+    <div class="form-group"><label>Title *</label><input type="text" name="title" required></div>
+    <div class="form-row"><div class="form-group"><label>Category *</label><select name="category" required><option value="">Select...</option><option value="plyometrics">Plyometrics</option><option value="sprinting">Sprinting</option><option value="calisthenics">Calisthenics</option><option value="hockey">Hockey</option></select></div><div class="form-group"><label>Scoring *</label><select name="scoringType" required><option value="">Select...</option><option value="max_reps">Max Reps</option><option value="min_time">Fastest Time</option></select></div></div>
+    <div class="form-row"><div class="form-group"><label>Unit *</label><input type="text" name="unit" required></div><div class="form-group"><label>Date *</label><input type="date" name="challengeDate" required value="<%= new Date().toISOString().split('T')[0] %>"></div></div>
+    <div class="form-group"><label>Description</label><textarea name="description" rows="2"></textarea></div>
+    <button type="submit" class="btn btn-primary btn-lg">Post Challenge</button>
+  </form>
+</div>
+<h2>Existing Challenges</h2>
+<div class="challenge-list">
+  <% challenges.forEach(c => { %>
+    <div class="challenge-item"><span class="badge badge-<%= c.category %>"><%= c.category.toUpperCase() %></span><div class="challenge-item-info"><strong><%= c.title %></strong><span class="muted"><%= c.challenge_date %></span></div><a href="/challenge/<%= c.id %>" class="btn btn-sm btn-secondary">View</a><form method="POST" action="/admin/delete-challenge/<%= c.id %>" style="display:inline;" onsubmit="return confirm('Delete?')"><button type="submit" class="btn btn-sm btn-danger">Delete</button></form></div>
+  <% }) %>
+</div>
+<h2>Team Members</h2>
+<table class="leaderboard-table"><thead><tr><th>Username</th><th>Role</th></tr></thead><tbody><% users.forEach(u => { %><tr><td><strong><%= u.username %></strong></td><td><%= u.is_admin ? '👑 Admin' : 'Player' %></td></tr><% }) %></tbody></table>
+<%- include('footer') %>

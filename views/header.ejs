@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Team Fitness Challenge</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand"><a href="/">🏋️ Team Fitness Challenge</a></div>
+    <% if (user) { %>
+      <div class="nav-links">
+        <a href="/" class="<%= active === 'dashboard' ? 'active' : '' %>">Today</a>
+        <a href="/leaderboard" class="<%= active === 'leaderboard' ? 'active' : '' %>">Leaderboard</a>
+        <% if (user.is_admin) { %><a href="/admin" class="<%= active === 'admin' ? 'active' : '' %>">Admin</a><% } %>
+        <a href="/change-password">🔑 Password</a>
+        <form method="POST" action="/logout" style="display:inline;"><button type="submit" class="btn-logout">Logout (<%= user.username %>)</button></form>
+      </div>
+    <% } %>
+  </nav>
+  <main class="container">
