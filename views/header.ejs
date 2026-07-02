@@ -11,9 +11,9 @@
     <div class="nav-brand"><a href="/">🏋️ Team Fitness Challenge</a></div>
     <% if (user) { %>
       <div class="nav-links">
-        <a href="/" class="<%= active === 'dashboard' ? 'active' : '' %>">Today</a>
-        <a href="/leaderboard" class="<%= active === 'leaderboard' ? 'active' : '' %>">Leaderboard</a>
-        <% if (user.is_admin) { %><a href="/admin" class="<%= active === 'admin' ? 'active' : '' %>">Admin</a><% } %>
+        <a href="/" class="<%= locals.active === 'dashboard' ? 'active' : '' %>">Today</a>
+        <a href="/leaderboard" class="<%= locals.active === 'leaderboard' ? 'active' : '' %>">Leaderboard</a>
+        <% if (user.is_admin) { %><a href="/admin" class="<%= locals.active === 'admin' ? 'active' : '' %>">Admin</a><% } %>
         <a href="/change-password">🔑 Password</a>
         <form method="POST" action="/logout" style="display:inline;"><button type="submit" class="btn-logout">Logout (<%= user.username %>)</button></form>
       </div>
