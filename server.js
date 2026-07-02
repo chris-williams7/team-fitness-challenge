@@ -348,6 +348,21 @@ app.post('/admin/delete-challenge/:id', requireAdmin, (req, res) => {
   res.redirect('/admin');
 });
 
+app.post('/admin/reset-password/:id', requireAdmin, (req, res) => {
+  const { newPassword } = req.body;
+  if (!newPassword || newPassword.length < 4) return res.status(400).send('Password must be at least 4 characters');
+
+  const checkStmt = db.prepare("SELECT id FROM users WHERE id = ?");
+  checkStmt.bind([req.params.id]);
+  const exists = checkStmt.step();
+  checkStmt.free();
+  if (!exists) return res.redirect('/admin');
+
+  const hash = bcrypt.hashSync(newPassword, 10);
+  db.run("UPDATE users SET password_hash = ? WHERE id = ?", [hash, req.params.id]);
+  res.redirect('/admin');
+});
+
 // Change Password
 app.get('/change-password', requireAuth, (req, res) => res.render('change-password', { error: null, success: null }));
 app.post('/change-password', async (req, res) => {

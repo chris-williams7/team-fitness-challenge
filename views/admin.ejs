@@ -17,5 +17,5 @@
   <% }) %>
 </div>
 <h2>Team Members</h2>
-<table class="leaderboard-table"><thead><tr><th>Username</th><th>Role</th></tr></thead><tbody><% users.forEach(u => { %><tr><td><strong><%= u.username %></strong></td><td><%= u.is_admin ? '👑 Admin' : 'Player' %></td></tr><% }) %></tbody></table>
+<table class="leaderboard-table"><thead><tr><th>Username</th><th>Role</th><th>Reset Password</th></tr></thead><tbody><% users.forEach(u => { %><tr><td><strong><%= u.username %></strong></td><td><%= u.is_admin ? '👑 Admin' : 'Player' %></td><td><form method="POST" action="/admin/reset-password/<%= u.id %>" class="inline-form" onsubmit="return confirm('Reset this user\'s password?')"><input type="password" name="newPassword" placeholder="New password" minlength="4" required><button type="submit" class="btn btn-sm btn-secondary">Set</button></form></td></tr><% }) %></tbody></table>
 <%- include('footer') %>
