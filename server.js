@@ -304,7 +304,7 @@ app.get('/leaderboard', requireAuth, async (req, res) => {
   const leaderboard = Object.values(userTotals).sort((a, b) => b.totalPoints - a.totalPoints).map((e, i) => ({ ...e, rank: i + 1 }));
   
   // Get completed challenges list
-  const listStmt = db.prepare(`SELECT id, title, category, scoring_type, challenge_date FROM challenges WHERE 1=1 ${dateFilter} ORDER BY challenge_date DESC`);
+  const listStmt = db.prepare(`SELECT id, title, category, scoring_type, challenge_date FROM challenges c WHERE 1=1 ${dateFilter} ORDER BY challenge_date DESC`);
   const challengesList = [];
   while(listStmt.step()) {
     challengesList.push(listStmt.getAsObject());
