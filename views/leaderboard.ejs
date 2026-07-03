@@ -1,5 +1,6 @@
 <%- include('header', { active: 'leaderboard' }) %>
 <h1>🏆 Leaderboard</h1>
+<p class="team-context">Team: <strong><%= teamName %></strong></p>
 <div class="filter-tabs"><a href="/leaderboard?period=all" class="<%= period === 'all' ? 'active' : '' %>">All Time</a><a href="/leaderboard?period=month" class="<%= period === 'month' ? 'active' : '' %>">Last 30 Days</a><a href="/leaderboard?period=week" class="<%= period === 'week' ? 'active' : '' %>">Last 7 Days</a></div>
 <% if (leaderboard.length === 0) { %><div class="card"><p class="muted">No scores recorded yet. Start competing! 💪</p></div><% } else { %>
   <table class="leaderboard-table"><thead><tr><th>Rank</th><th>Player</th><th>Total Points</th><th>Challenges Done</th><th>🥇</th><th>🥈</th><th>🥉</th></tr></thead><tbody>

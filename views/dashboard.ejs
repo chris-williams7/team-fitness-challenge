@@ -1,5 +1,6 @@
 <%- include('header', { active: 'dashboard' }) %>
 <h1>Welcome back, <%= user.username %>! 👋</h1>
+<p class="team-context">Team: <strong><%= teamName %></strong></p>
 <% if (todayChallenge) { %>
   <div class="card today-challenge">
     <div class="challenge-header"><span class="badge badge-<%= todayChallenge.category %>"><%= todayChallenge.category.toUpperCase() %></span><h2><%= todayChallenge.title %></h2></div>

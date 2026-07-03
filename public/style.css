@@ -406,3 +406,78 @@ h2 { margin-bottom: 1rem; font-size: 1.4rem; }
   .container { padding: 0 1rem; }
   .navbar { padding: 0 1rem; }
 }
+/* ===== Teams & user admin (added) ===== */
+.team-context {
+  color: var(--text-muted);
+  margin: -8px 0 20px;
+}
+.team-context strong { color: var(--text); }
+
+.team-switch { display: inline-flex; align-items: center; }
+.team-switch select {
+  background: #020617;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.team-switch select:hover { border-color: var(--primary); }
+
+.team-tag {
+  display: inline-block;
+  background: rgba(37, 99, 235, 0.15);
+  color: #93c5fd;
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  padding: 1px 10px;
+  font-size: 0.8rem;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.checkbox-label input { width: auto; }
+
+.user-admin-list { display: grid; gap: 12px; }
+.user-admin-card { padding: 16px; }
+.user-admin-head { margin-bottom: 12px; color: var(--text-muted); }
+.user-admin-head strong { color: var(--text); font-size: 1.05rem; }
+
+.user-admin-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.user-admin-row input[type="text"],
+.user-admin-row select {
+  background: #020617;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.user-admin-row input[type="text"] { flex: 1; min-width: 140px; }
+
+.user-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.user-admin-actions input[type="password"] {
+  background: #020617;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}

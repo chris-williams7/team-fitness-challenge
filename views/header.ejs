@@ -14,6 +14,14 @@
         <a href="/" class="<%= locals.active === 'dashboard' ? 'active' : '' %>">Today</a>
         <a href="/leaderboard" class="<%= locals.active === 'leaderboard' ? 'active' : '' %>">Leaderboard</a>
         <% if (user.is_admin) { %><a href="/admin" class="<%= locals.active === 'admin' ? 'active' : '' %>">Admin</a><% } %>
+        <% if (user.is_admin && typeof teams !== 'undefined' && teams.length) { %>
+          <form method="POST" action="/set-team" class="team-switch">
+            <select name="team" onchange="this.form.submit()" title="Viewing team">
+              <option value="all" <%= String(activeTeam) === 'all' ? 'selected' : '' %>>👥 All Teams</option>
+              <% teams.forEach(t => { %><option value="<%= t.id %>" <%= String(activeTeam) === String(t.id) ? 'selected' : '' %>><%= t.name %></option><% }) %>
+            </select>
+          </form>
+        <% } %>
         <a href="/change-password">🔑 Password</a>
         <form method="POST" action="/logout" style="display:inline;"><button type="submit" class="btn-logout">Logout (<%= user.username %>)</button></form>
       </div>
