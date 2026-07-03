@@ -35,7 +35,7 @@
       <tbody>
         <% teams.forEach(t => { %>
           <tr>
-            <td><strong><%= t.name %></strong></td>
+            <td><form method="POST" action="/admin/rename-team/<%= t.id %>" class="inline-form"><input type="text" name="name" value="<%= t.name %>" required><button type="submit" class="btn btn-sm btn-secondary">Rename</button></form></td>
             <td><%= t.member_count %></td>
             <td><%= t.challenge_count %></td>
             <td><form method="POST" action="/admin/delete-team/<%= t.id %>" style="display:inline;" onsubmit="return confirm('Delete team <%= t.name %>? Its players become unassigned and its challenges become global.')"><button type="submit" class="btn btn-sm btn-danger">Delete</button></form></td>
@@ -106,8 +106,14 @@
       <span class="badge badge-<%= c.category %>"><%= c.category.toUpperCase() %></span>
       <div class="challenge-item-info">
         <strong><%= c.title %></strong>
-        <span class="muted"><%= c.challenge_date %> · <%= c.team_name ? c.team_name : '👥 All Teams' %></span>
+        <span class="muted"><%= c.challenge_date %></span>
       </div>
+      <form method="POST" action="/admin/edit-challenge/<%= c.id %>" class="inline-form" title="Reassign team">
+        <select name="team_id" onchange="this.form.submit()">
+          <option value="" <%= c.team_id ? '' : 'selected' %>>👥 All Teams</option>
+          <% teams.forEach(t => { %><option value="<%= t.id %>" <%= c.team_id === t.id ? 'selected' : '' %>><%= t.name %></option><% }) %>
+        </select>
+      </form>
       <a href="/challenge/<%= c.id %>" class="btn btn-sm btn-secondary">View</a>
       <form method="POST" action="/admin/delete-challenge/<%= c.id %>" style="display:inline;" onsubmit="return confirm('Delete?')"><button type="submit" class="btn btn-sm btn-danger">Delete</button></form>
     </div>

@@ -398,6 +398,15 @@ app.post('/admin/create-challenge', requireAdmin, (req, res) => {
   res.redirect('/admin');
 });
 
+app.post('/admin/edit-challenge/:id', requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const teamId = req.body.team_id ? parseInt(req.body.team_id, 10) : null;
+  if (!queryOne('SELECT id FROM challenges WHERE id = ?', [id])) return res.redirect('/admin');
+  db.run('UPDATE challenges SET team_id = ? WHERE id = ?', [teamId, id]);
+  saveDatabase();
+  res.redirect('/admin');
+});
+
 app.post('/admin/delete-challenge/:id', requireAdmin, (req, res) => {
   db.run('DELETE FROM scores WHERE challenge_id = ?', [req.params.id]);
   db.run('DELETE FROM challenges WHERE id = ?', [req.params.id]);
@@ -460,6 +469,16 @@ app.post('/admin/create-team', requireAdmin, (req, res) => {
     db.run('INSERT INTO teams (name) VALUES (?)', [name]);
     saveDatabase();
   }
+  res.redirect('/admin');
+});
+
+app.post('/admin/rename-team/:id', requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const name = (req.body.name || '').trim();
+  if (!name) return res.redirect('/admin');
+  if (queryOne('SELECT id FROM teams WHERE name = ? AND id != ?', [name, id])) return res.status(400).send('Team name taken');
+  db.run('UPDATE teams SET name = ? WHERE id = ?', [name, id]);
+  saveDatabase();
   res.redirect('/admin');
 });
 
