@@ -88,6 +88,16 @@ function ensureSchema() {
 }
 
 // ---- Persistence: atomic, non-overlapping saves ----
+// Writes the current in-memory DB to disk atomically (temp file + rename).
+async function writeDbToDisk() {
+  const buffer = Buffer.from(db.export());
+  const dirPath = path.dirname(DB_PATH);
+  try { await fs.mkdir(dirPath, { recursive: true }); } catch (e) { /* exists */ }
+  const tmp = `${DB_PATH}.tmp`;
+  await fs.writeFile(tmp, buffer);
+  await fs.rename(tmp, DB_PATH); // atomic swap on same filesystem
+}
+
 let saving = false;
 let saveQueued = false;
 async function saveDatabase() {
@@ -95,18 +105,21 @@ async function saveDatabase() {
   if (saving) { saveQueued = true; return; }
   saving = true;
   try {
-    const buffer = Buffer.from(db.export());
-    const dirPath = path.dirname(DB_PATH);
-    try { await fs.mkdir(dirPath, { recursive: true }); } catch (e) { /* exists */ }
-    const tmp = `${DB_PATH}.tmp`;
-    await fs.writeFile(tmp, buffer);
-    await fs.rename(tmp, DB_PATH); // atomic swap on same filesystem
+    await writeDbToDisk();
   } catch (err) {
     console.error('Failed to save database:', err.message);
   } finally {
     saving = false;
     if (saveQueued) { saveQueued = false; saveDatabase(); }
   }
+}
+
+// Guaranteed final flush for shutdown: waits out any in-flight save, then writes
+// the latest state directly so the most recent change can't be lost on restart.
+async function flushDatabase() {
+  if (!db) return;
+  while (saving) { await new Promise((r) => setTimeout(r, 20)); }
+  try { await writeDbToDisk(); } catch (err) { console.error('Failed to flush database:', err.message); }
 }
 
 // ========== Query helpers ==========
@@ -260,11 +273,14 @@ app.post('/register', (req, res) => {
   if (queryOne('SELECT id FROM users WHERE username = ?', [username])) {
     return res.render('register', { error: 'Username taken' });
   }
+  // Player picks their own team at signup; only accept a real team id.
+  let teamId = req.body.team_id ? parseInt(req.body.team_id, 10) : null;
+  if (teamId != null && !queryOne('SELECT id FROM teams WHERE id = ?', [teamId])) teamId = null;
   const hash = bcrypt.hashSync(password, 10);
-  db.run('INSERT INTO users (username, password_hash) VALUES (?, ?)', [username, hash]);
+  db.run('INSERT INTO users (username, password_hash, team_id) VALUES (?, ?, ?)', [username, hash, teamId]);
   const lastId = db.exec('SELECT last_insert_rowid() as id')[0]?.values?.[0]?.[0] || 0;
   saveDatabase();
-  req.session.user = { id: lastId, username, is_admin: false, team_id: null };
+  req.session.user = { id: lastId, username, is_admin: false, team_id: teamId };
   res.redirect('/');
 });
 
@@ -531,7 +547,7 @@ process.on('uncaughtException', (err) => console.error('Uncaught exception:', er
 // ========== Graceful Shutdown ==========
 async function shutdown() {
   console.log('\nShutting down... Saving database.');
-  await saveDatabase();
+  await flushDatabase();
   console.log('Goodbye!');
   process.exit(0);
 }

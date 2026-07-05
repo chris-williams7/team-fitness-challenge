@@ -5,6 +5,9 @@
   <form method="POST" action="/register">
     <div class="form-group"><label>Username</label><input type="text" name="username" required autofocus></div>
     <div class="form-group"><label>Password</label><input type="password" name="password" required></div>
+    <% if (typeof teams !== 'undefined' && teams.length) { %>
+      <div class="form-group"><label>Your Team</label><select name="team_id" required><option value="">— Select your team —</option><% teams.forEach(t => { %><option value="<%= t.id %>"><%= t.name %></option><% }) %></select></div>
+    <% } %>
     <button type="submit" class="btn btn-primary btn-full">Register</button>
   </form>
   <p class="auth-switch">Already have an account? <a href="/login">Login here</a></p>

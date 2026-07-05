@@ -481,3 +481,6 @@ h2 { margin-bottom: 1rem; font-size: 1.4rem; }
   border-radius: 6px;
   padding: 8px 10px;
 }
+
+/* Preserve line breaks / spacing entered in the challenge description box */
+.challenge-desc { white-space: pre-wrap; }
