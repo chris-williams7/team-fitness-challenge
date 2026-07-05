@@ -102,20 +102,44 @@
 <h2>Existing Challenges</h2>
 <div class="challenge-list">
   <% challenges.forEach(c => { %>
-    <div class="challenge-item">
-      <span class="badge badge-<%= c.category %>"><%= c.category.toUpperCase() %></span>
-      <div class="challenge-item-info">
-        <strong><%= c.title %></strong>
-        <span class="muted"><%= c.challenge_date %></span>
+    <div class="challenge-admin-item">
+      <div class="challenge-item">
+        <span class="badge badge-<%= c.category %>"><%= c.category.toUpperCase() %></span>
+        <div class="challenge-item-info">
+          <strong><%= c.title %></strong>
+          <span class="muted"><%= c.challenge_date %></span>
+        </div>
+        <form method="POST" action="/admin/edit-challenge/<%= c.id %>" class="inline-form" title="Reassign team">
+          <select name="team_id" onchange="this.form.submit()">
+            <option value="" <%= c.team_id ? '' : 'selected' %>>👥 All Teams</option>
+            <% teams.forEach(t => { %><option value="<%= t.id %>" <%= c.team_id === t.id ? 'selected' : '' %>><%= t.name %></option><% }) %>
+          </select>
+        </form>
+        <a href="/challenge/<%= c.id %>" class="btn btn-sm btn-secondary">View</a>
+        <form method="POST" action="/admin/delete-challenge/<%= c.id %>" style="display:inline;" onsubmit="return confirm('Delete?')"><button type="submit" class="btn btn-sm btn-danger">Delete</button></form>
       </div>
-      <form method="POST" action="/admin/edit-challenge/<%= c.id %>" class="inline-form" title="Reassign team">
-        <select name="team_id" onchange="this.form.submit()">
-          <option value="" <%= c.team_id ? '' : 'selected' %>>👥 All Teams</option>
-          <% teams.forEach(t => { %><option value="<%= t.id %>" <%= c.team_id === t.id ? 'selected' : '' %>><%= t.name %></option><% }) %>
-        </select>
-      </form>
-      <a href="/challenge/<%= c.id %>" class="btn btn-sm btn-secondary">View</a>
-      <form method="POST" action="/admin/delete-challenge/<%= c.id %>" style="display:inline;" onsubmit="return confirm('Delete?')"><button type="submit" class="btn btn-sm btn-danger">Delete</button></form>
+      <details class="challenge-edit">
+        <summary>✏️ Edit challenge</summary>
+        <form method="POST" action="/admin/update-challenge/<%= c.id %>">
+          <div class="form-group"><label>Title *</label><input type="text" name="title" value="<%= c.title %>" required></div>
+          <div class="form-row">
+            <div class="form-group"><label>Category *</label><select name="category" required>
+              <% ['plyometrics','sprinting','calisthenics','hockey'].forEach(cat => { %><option value="<%= cat %>" <%= c.category === cat ? 'selected' : '' %>><%= cat.charAt(0).toUpperCase() + cat.slice(1) %></option><% }) %>
+            </select></div>
+            <div class="form-group"><label>Scoring *</label><select name="scoringType" required>
+              <option value="max_reps" <%= c.scoring_type === 'max_reps' ? 'selected' : '' %>>Max Reps</option>
+              <option value="min_time" <%= c.scoring_type === 'min_time' ? 'selected' : '' %>>Fastest Time</option>
+            </select></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Unit *</label><input type="text" name="unit" value="<%= c.unit %>" required></div>
+            <div class="form-group"><label>Date *</label><input type="date" name="challengeDate" value="<%= c.challenge_date %>" required></div>
+          </div>
+          <div class="form-group"><label>Team</label><select name="team_id"><option value="" <%= c.team_id ? '' : 'selected' %>>👥 All Teams (global)</option><% teams.forEach(t => { %><option value="<%= t.id %>" <%= c.team_id === t.id ? 'selected' : '' %>><%= t.name %></option><% }) %></select></div>
+          <div class="form-group"><label>Description</label><textarea name="description" rows="4"><%= c.description %></textarea></div>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </form>
+      </details>
     </div>
   <% }) %>
 </div>

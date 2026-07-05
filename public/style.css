@@ -484,3 +484,22 @@ h2 { margin-bottom: 1rem; font-size: 1.4rem; }
 
 /* Preserve line breaks / spacing entered in the challenge description box */
 .challenge-desc { white-space: pre-wrap; }
+
+/* Admin: collapsible challenge editor */
+.challenge-admin-item { margin-bottom: 10px; }
+.challenge-edit summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 6px 2px;
+  user-select: none;
+}
+.challenge-edit summary:hover { color: var(--text); }
+.challenge-edit > form {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 6px 0 4px;
+}
+.challenge-edit textarea { width: 100%; }

@@ -414,11 +414,27 @@ app.post('/admin/create-challenge', requireAdmin, (req, res) => {
   res.redirect('/admin');
 });
 
+// Quick inline team reassignment.
 app.post('/admin/edit-challenge/:id', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const teamId = req.body.team_id ? parseInt(req.body.team_id, 10) : null;
   if (!queryOne('SELECT id FROM challenges WHERE id = ?', [id])) return res.redirect('/admin');
   db.run('UPDATE challenges SET team_id = ? WHERE id = ?', [teamId, id]);
+  saveDatabase();
+  res.redirect('/admin');
+});
+
+// Full challenge edit (title, description, category, scoring, unit, date, team).
+app.post('/admin/update-challenge/:id', requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!queryOne('SELECT id FROM challenges WHERE id = ?', [id])) return res.redirect('/admin');
+  const { title, description, category, scoringType, unit, challengeDate } = req.body;
+  const teamId = req.body.team_id ? parseInt(req.body.team_id, 10) : null;
+  if (!title || !category || !scoringType || !unit || !challengeDate) return res.status(400).send('Missing fields');
+  db.run(
+    'UPDATE challenges SET title = ?, description = ?, category = ?, scoring_type = ?, unit = ?, challenge_date = ?, team_id = ? WHERE id = ?',
+    [title, description || '', category, scoringType, unit, challengeDate, teamId, id]
+  );
   saveDatabase();
   res.redirect('/admin');
 });
