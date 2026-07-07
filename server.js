@@ -163,8 +163,31 @@ app.use((req, res, next) => {
   res.locals.user = req.session.user || null;
   res.locals.activeTeam = req.session.activeTeam || 'all';
   res.locals.teams = db ? queryAll('SELECT id, name FROM teams ORDER BY name') : [];
+  res.locals.linkify = linkify;
   next();
 });
+
+// Escape HTML, then turn bare URLs into clickable links. Escaping first keeps
+// this XSS-safe even though the result is emitted with <%- %> (unescaped).
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function linkify(text) {
+  const escaped = escapeHtml(text);
+  return escaped.replace(/((?:https?:\/\/|www\.)[^\s<]+)/g, (match) => {
+    // Peel trailing sentence punctuation off the end of the URL.
+    const trail = (match.match(/[.,!?)\]]+$/) || [''])[0];
+    const url = match.slice(0, match.length - trail.length);
+    const href = url.startsWith('www.') ? `https://${url}` : url;
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer">${url}</a>${trail}`;
+  });
+}
 
 function requireAuth(req, res, next) {
   if (!req.session.user) return res.redirect('/login');
@@ -219,7 +242,23 @@ function calculatePoints(scores, scoringType) {
     scoringType === 'min_time' ? a.score_value - b.score_value : b.score_value - a.score_value
   );
   const pointsMap = [10, 8, 6, 5, 4, 3, 2, 1];
-  return sorted.map((entry, i) => ({ ...entry, rank: i + 1, points: i < pointsMap.length ? pointsMap[i] : 1 }));
+  const pointsAt = (i) => (i < pointsMap.length ? pointsMap[i] : 1);
+
+  const result = [];
+  let i = 0;
+  while (i < sorted.length) {
+    // Group everyone with the identical score into one tie block.
+    let j = i;
+    while (j < sorted.length && sorted[j].score_value === sorted[i].score_value) j++;
+    const rank = i + 1;                 // standard competition ranking (1, 1, 3, ...)
+    const points = pointsAt(i);         // tied players all earn the top position's points
+    const tied = (j - i) > 1;
+    for (let k = i; k < j; k++) {
+      result.push({ ...sorted[k], rank, points, tied });
+    }
+    i = j;
+  }
+  return result;
 }
 
 // ========== Routes ==========

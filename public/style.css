@@ -503,3 +503,21 @@ h2 { margin-bottom: 1rem; font-size: 1.4rem; }
   margin: 6px 0 4px;
 }
 .challenge-edit textarea { width: 100%; }
+
+/* Clickable links inside challenge descriptions */
+.challenge-desc a { color: var(--primary); text-decoration: underline; word-break: break-word; }
+.challenge-desc a:hover { color: var(--primary-dark); }
+
+/* Tie indicator on the challenge results table */
+.tie-tag {
+  display: inline-block;
+  background: var(--gold);
+  color: #1a1200;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  vertical-align: middle;
+  margin-left: 4px;
+}
