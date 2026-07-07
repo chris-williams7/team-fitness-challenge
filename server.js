@@ -164,6 +164,7 @@ app.use((req, res, next) => {
   res.locals.activeTeam = req.session.activeTeam || 'all';
   res.locals.teams = db ? queryAll('SELECT id, name FROM teams ORDER BY name') : [];
   res.locals.linkify = linkify;
+  res.locals.formatScore = formatScore;
   next();
 });
 
@@ -187,6 +188,17 @@ function linkify(text) {
     const href = url.startsWith('www.') ? `https://${url}` : url;
     return `<a href="${href}" target="_blank" rel="noopener noreferrer">${url}</a>${trail}`;
   });
+}
+
+// Display a stored score. Fastest-time challenges store total seconds but show m:ss.
+function formatScore(value, scoringType, unit) {
+  if (scoringType !== 'min_time') return `${value} ${unit}`;
+  const total = Math.max(0, Number(value) || 0);
+  const m = Math.floor(total / 60);
+  const s = total - m * 60;
+  const intPart = Math.floor(s);
+  const secStr = (intPart < 10 ? '0' : '') + (Number.isInteger(s) ? String(intPart) : String(s));
+  return `${m}:${secStr}`;
 }
 
 function requireAuth(req, res, next) {
@@ -362,8 +374,18 @@ app.post('/challenge/:id/submit', requireAuth, (req, res) => {
   if (!challenge) return res.redirect('/');
   if (!scope.all && challenge.team_id != null && challenge.team_id !== scope.teamId) return res.redirect('/');
 
-  const scoreValue = parseFloat(req.body.scoreValue);
-  if (isNaN(scoreValue) || scoreValue < 0) return res.status(400).send('Invalid score');
+  let scoreValue;
+  if (challenge.scoring_type === 'min_time') {
+    // Fastest-time challenges are entered as minutes + seconds, stored as total seconds.
+    const minutes = parseInt(req.body.minutes, 10) || 0;
+    const seconds = parseFloat(req.body.seconds) || 0;
+    if (minutes < 0 || seconds < 0 || seconds >= 60) return res.status(400).send('Invalid time (seconds must be 0-59)');
+    scoreValue = Math.round((minutes * 60 + seconds) * 100) / 100;
+    if (scoreValue <= 0) return res.status(400).send('Enter a time greater than zero');
+  } else {
+    scoreValue = parseFloat(req.body.scoreValue);
+    if (isNaN(scoreValue) || scoreValue < 0) return res.status(400).send('Invalid score');
+  }
 
   db.run(
     "INSERT OR REPLACE INTO scores (user_id, challenge_id, score_value, submitted_at) VALUES (?, ?, ?, datetime('now'))",

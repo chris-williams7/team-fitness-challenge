@@ -6,7 +6,7 @@
     <div class="challenge-header"><span class="badge badge-<%= todayChallenge.category %>"><%= todayChallenge.category.toUpperCase() %></span><h2><%= todayChallenge.title %></h2></div>
     <% if (todayChallenge.description) { %><p class="challenge-desc"><%- linkify(todayChallenge.description) %></p><% } %>
     <div class="challenge-meta"><span>Unit: <strong><%= todayChallenge.unit %></strong></span><span><%= participants %> scored</span></div>
-    <% if (userScore) { %><div class="score-submitted">✅ Your score: <strong><%= userScore.score_value %> <%= todayChallenge.unit %></strong></div><% } %>
+    <% if (userScore) { %><div class="score-submitted">✅ Your score: <strong><%= formatScore(userScore.score_value, todayChallenge.scoring_type, todayChallenge.unit) %></strong></div><% } %>
     <a href="/challenge/<%= todayChallenge.id %>" class="btn btn-primary btn-lg">Submit Score →</a>
   </div>
 <% } else { %><div class="card empty-state"><h2>No challenge posted yet 🦥</h2><p>Check back later!</p></div><% } %>
