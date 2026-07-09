@@ -7,7 +7,10 @@
 </div>
 <div class="card score-card">
   <% const isTime = challenge.scoring_type === 'min_time'; %>
-  <% if (myScore) { %>
+  <% if (!isOpen) { %>
+    <h3>🔒 Opens <%= challenge.challenge_date %></h3>
+    <p class="muted">This challenge isn't open yet — you'll be able to submit your score on <strong><%= challenge.challenge_date %></strong>.</p>
+  <% } else if (myScore) { %>
     <h3>Your Submission</h3><p>You scored <strong><%= formatScore(myScore.score_value, challenge.scoring_type, challenge.unit) %></strong></p>
     <details class="update-section"><summary>Update</summary>
       <form method="POST" action="/challenge/<%= challenge.id %>/submit" class="inline-form">

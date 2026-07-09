@@ -1,19 +1,37 @@
 <%- include('header', { active: 'dashboard' }) %>
 <h1>Welcome back, <%= user.username %>! 👋</h1>
 <p class="team-context">Team: <strong><%= teamName %></strong></p>
-<% if (todayChallenge) { %>
-  <div class="card today-challenge">
-    <div class="challenge-header"><span class="badge badge-<%= todayChallenge.category %>"><%= todayChallenge.category.toUpperCase() %></span><h2><%= todayChallenge.title %></h2></div>
-    <% if (todayChallenge.description) { %><p class="challenge-desc"><%- linkify(todayChallenge.description) %></p><% } %>
-    <div class="challenge-meta"><span>Unit: <strong><%= todayChallenge.unit %></strong></span><span><%= participants %> scored</span></div>
-    <% if (userScore) { %><div class="score-submitted">✅ Your score: <strong><%= formatScore(userScore.score_value, todayChallenge.scoring_type, todayChallenge.unit) %></strong></div><% } %>
-    <a href="/challenge/<%= todayChallenge.id %>" class="btn btn-primary btn-lg">Submit Score →</a>
-  </div>
-<% } else { %><div class="card empty-state"><h2>No challenge posted yet 🦥</h2><p>Check back later!</p></div><% } %>
-<h2>Recent Challenges</h2>
-<div class="challenge-list">
-  <% recentChallenges.forEach(c => { %>
-    <a href="/challenge/<%= c.id %>" class="challenge-item"><span class="badge badge-<%= c.category %>"><%= c.category.toUpperCase() %></span><div class="challenge-item-info"><strong><%= c.title %></strong><span class="muted"><%= c.challenge_date %> • <%= c.score_count %> scored</span></div><span class="arrow">→</span></a>
+
+<h2>Today's Challenge<%= featured.length === 1 ? '' : 's' %></h2>
+<% if (featured.length === 0) { %>
+  <div class="card empty-state"><h2>No challenge posted for today 🦥</h2><p>Check back later!</p></div>
+<% } else { %>
+  <% featured.forEach(c => { %>
+    <div class="card today-challenge">
+      <div class="challenge-header"><span class="badge badge-<%= c.category %>"><%= c.category.toUpperCase() %></span><h2><%= c.title %></h2></div>
+      <% if (c.description) { %><p class="challenge-desc"><%- linkify(c.description) %></p><% } %>
+      <div class="challenge-meta"><span>Unit: <strong><%= c.unit %></strong></span><span><%= c.participants %> scored</span></div>
+      <% if (c.userScore) { %><div class="score-submitted">✅ Your score: <strong><%= formatScore(c.userScore.score_value, c.scoring_type, c.unit) %></strong></div><% } %>
+      <a href="/challenge/<%= c.id %>" class="btn btn-primary btn-lg">Submit Score →</a>
+    </div>
   <% }) %>
-</div>
+<% } %>
+
+<% if (upcoming && upcoming.length) { %>
+  <h2>Upcoming</h2>
+  <div class="challenge-list">
+    <% upcoming.forEach(c => { %>
+      <a href="/challenge/<%= c.id %>" class="challenge-item is-upcoming"><span class="badge badge-<%= c.category %>"><%= c.category.toUpperCase() %></span><div class="challenge-item-info"><strong><%= c.title %></strong><span class="muted">🔒 Opens <%= c.challenge_date %></span></div><span class="arrow">→</span></a>
+    <% }) %>
+  </div>
+<% } %>
+
+<% if (recentChallenges && recentChallenges.length) { %>
+  <h2>Recent Challenges</h2>
+  <div class="challenge-list">
+    <% recentChallenges.forEach(c => { %>
+      <a href="/challenge/<%= c.id %>" class="challenge-item"><span class="badge badge-<%= c.category %>"><%= c.category.toUpperCase() %></span><div class="challenge-item-info"><strong><%= c.title %></strong><span class="muted"><%= c.challenge_date %> • <%= c.score_count %> scored</span></div><span class="arrow">→</span></a>
+    <% }) %>
+  </div>
+<% } %>
 <%- include('footer') %>

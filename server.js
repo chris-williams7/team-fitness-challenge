@@ -273,34 +273,52 @@ function calculatePoints(scores, scoringType) {
   return result;
 }
 
+// ========== Date helpers ==========
+// "Today" is computed in the team's local timezone, so the day rolls over at
+// local midnight rather than at UTC midnight. Set TIMEZONE in the environment.
+const APP_TZ = process.env.TIMEZONE || 'America/New_York';
+function todayStr() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: APP_TZ }); // YYYY-MM-DD
+}
+// A challenge is "open" (submittable) once its date is today or earlier.
+function isChallengeOpen(challenge, today = todayStr()) {
+  return challenge.challenge_date <= today;
+}
+
 // ========== Routes ==========
 
 // Home Dashboard
 app.get('/', requireAuth, (req, res) => {
   const scope = scopeFor(req);
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayStr();
+  const uid = req.session.user.id;
 
+  // Featured: every challenge dated today (all of them).
   const tc = challengeTeamClause(scope, null);
-  const todayChallenge = queryOne(
-    `SELECT * FROM challenges WHERE challenge_date = ?${tc.sql} ORDER BY created_at DESC LIMIT 1`,
+  const featured = queryAll(
+    `SELECT * FROM challenges WHERE challenge_date = ?${tc.sql} ORDER BY created_at DESC`,
     [today, ...tc.params]
   );
-
-  let userScore = null, participants = 0;
-  if (todayChallenge) {
-    userScore = queryOne('SELECT * FROM scores WHERE user_id = ? AND challenge_id = ?', [req.session.user.id, todayChallenge.id]);
-    const p = queryOne('SELECT COUNT(DISTINCT user_id) as count FROM scores WHERE challenge_id = ?', [todayChallenge.id]);
-    participants = p ? p.count : 0;
+  for (const ch of featured) {
+    ch.userScore = queryOne('SELECT * FROM scores WHERE user_id = ? AND challenge_id = ?', [uid, ch.id]);
+    const p = queryOne('SELECT COUNT(DISTINCT user_id) as count FROM scores WHERE challenge_id = ?', [ch.id]);
+    ch.participants = p ? p.count : 0;
   }
 
   const rc = challengeTeamClause(scope, 'c');
+  // Upcoming: future-dated challenges, visible to everyone but not yet open.
+  const upcoming = queryAll(
+    `SELECT c.* FROM challenges c WHERE c.challenge_date > ?${rc.sql} ORDER BY c.challenge_date ASC LIMIT 10`,
+    [today, ...rc.params]
+  );
+  // Recent: past challenges (history).
   const recentChallenges = queryAll(
     `SELECT c.*, COUNT(s.id) as score_count FROM challenges c LEFT JOIN scores s ON c.id = s.challenge_id
-     WHERE 1=1${rc.sql} GROUP BY c.id ORDER BY c.challenge_date DESC LIMIT 5`,
-    rc.params
+     WHERE c.challenge_date < ?${rc.sql} GROUP BY c.id ORDER BY c.challenge_date DESC LIMIT 5`,
+    [today, ...rc.params]
   );
 
-  res.render('dashboard', { todayChallenge, userScore, participants, recentChallenges, teamName: scopeName(scope) });
+  res.render('dashboard', { featured, upcoming, recentChallenges, teamName: scopeName(scope) });
 });
 
 // Login/Register
@@ -365,7 +383,7 @@ app.get('/challenge/:id', requireAuth, (req, res) => {
   );
 
   const rankedScores = calculatePoints(allScores, challenge.scoring_type);
-  res.render('challenge', { challenge, myScore, rankedScores });
+  res.render('challenge', { challenge, myScore, rankedScores, isOpen: isChallengeOpen(challenge) });
 });
 
 app.post('/challenge/:id/submit', requireAuth, (req, res) => {
@@ -373,6 +391,8 @@ app.post('/challenge/:id/submit', requireAuth, (req, res) => {
   const challenge = queryOne('SELECT * FROM challenges WHERE id = ?', [req.params.id]);
   if (!challenge) return res.redirect('/');
   if (!scope.all && challenge.team_id != null && challenge.team_id !== scope.teamId) return res.redirect('/');
+  // Can't submit before a challenge opens (its date is in the future).
+  if (!isChallengeOpen(challenge)) return res.redirect(`/challenge/${challenge.id}`);
 
   let scoreValue;
   if (challenge.scoring_type === 'min_time') {

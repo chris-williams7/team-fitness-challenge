@@ -526,3 +526,7 @@ h2 { margin-bottom: 1rem; font-size: 1.4rem; }
 .time-inputs { display: inline-flex; align-items: center; gap: 6px; }
 .time-inputs input { width: 72px; }
 .time-colon { color: var(--text-muted); font-size: 0.85rem; }
+
+/* Upcoming (not-yet-open) challenges on the dashboard */
+.challenge-item.is-upcoming { opacity: 0.72; border-style: dashed; }
+.challenge-item.is-upcoming:hover { opacity: 1; }
