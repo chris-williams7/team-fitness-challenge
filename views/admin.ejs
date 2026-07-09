@@ -1,5 +1,9 @@
 <%- include('header', { active: 'admin' }) %>
-<h1>⚙️ Admin Panel</h1>
+<h1>⚙️ Admin</h1>
+<div class="admin-tabs">
+  <a href="/admin" class="active">📋 Challenges</a>
+  <a href="/admin/people">👥 People</a>
+</div>
 
 <!-- ===== Create Challenge ===== -->
 <div class="card">
@@ -19,109 +23,6 @@
     <button type="submit" class="btn btn-primary btn-lg">Post Challenge</button>
   </form>
 </div>
-
-<!-- ===== Teams ===== -->
-<h2>Teams</h2>
-<div class="card">
-  <form method="POST" action="/admin/create-team" class="inline-form">
-    <input type="text" name="name" placeholder="New team name" required>
-    <button type="submit" class="btn btn-primary">Add Team</button>
-  </form>
-  <% if (teams.length === 0) { %>
-    <p class="muted" style="margin-top:12px;">No teams yet. Add one above, then assign players and challenges to it.</p>
-  <% } else { %>
-    <table class="leaderboard-table" style="margin-top:16px;">
-      <thead><tr><th>Team</th><th>Players</th><th>Challenges</th><th></th></tr></thead>
-      <tbody>
-        <% teams.forEach(t => { %>
-          <tr>
-            <td><form method="POST" action="/admin/rename-team/<%= t.id %>" class="inline-form"><input type="text" name="name" value="<%= t.name %>" required><button type="submit" class="btn btn-sm btn-secondary">Rename</button></form></td>
-            <td><%= t.member_count %></td>
-            <td><%= t.challenge_count %></td>
-            <td><form method="POST" action="/admin/delete-team/<%= t.id %>" style="display:inline;" onsubmit="return confirm('Delete team <%= t.name %>? Its players become unassigned and its challenges become global.')"><button type="submit" class="btn btn-sm btn-danger">Delete</button></form></td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
-  <% } %>
-</div>
-
-<!-- ===== Add User ===== -->
-<h2>Add User</h2>
-<div class="card">
-  <form method="POST" action="/admin/create-user">
-    <div class="form-row">
-      <div class="form-group"><label>Username *</label><input type="text" name="username" minlength="3" required></div>
-      <div class="form-group"><label>Password *</label><input type="text" name="password" minlength="4" required></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label>Team</label><select name="team_id"><option value="">— No team —</option><% teams.forEach(t => { %><option value="<%= t.id %>"><%= t.name %></option><% }) %></select></div>
-      <div class="form-group"><label>Role</label><label class="checkbox-label"><input type="checkbox" name="is_admin" value="1"> Admin</label></div>
-    </div>
-    <button type="submit" class="btn btn-primary btn-lg">Create User</button>
-  </form>
-</div>
-
-<!-- ===== Manage Users ===== -->
-<h2>Team Members <span class="muted count-pill"><%= users.length %></span></h2>
-<input type="search" id="memberSearch" class="member-search" placeholder="🔍  Search members by name…" autocomplete="off">
-<p class="muted member-search-empty" id="memberSearchEmpty" hidden>No members match your search.</p>
-<div class="user-admin-list">
-  <% users.forEach(u => { %>
-    <details class="card user-row" data-name="<%= u.username.toLowerCase() %>">
-      <summary class="user-row-summary">
-        <span class="user-row-name"><%= u.username %><% if (u.id === currentUserId) { %> <span class="muted">(you)</span><% } %></span>
-        <span class="user-row-tags">
-          <span class="role-badge <%= u.is_admin ? 'is-admin' : '' %>"><%= u.is_admin ? '👑 Admin' : 'Player' %></span>
-          <% if (u.team_name) { %><span class="team-tag"><%= u.team_name %></span><% } else { %><span class="muted no-team">No team</span><% } %>
-        </span>
-        <span class="user-row-toggle">Edit</span>
-      </summary>
-      <div class="user-row-body">
-        <form method="POST" action="/admin/edit-user/<%= u.id %>" class="user-edit-grid">
-          <label class="field"><span>Username</span><input type="text" name="username" value="<%= u.username %>" minlength="3" required></label>
-          <label class="field"><span>Team</span>
-            <select name="team_id">
-              <option value="">— No team —</option>
-              <% teams.forEach(t => { %><option value="<%= t.id %>" <%= u.team_id === t.id ? 'selected' : '' %>><%= t.name %></option><% }) %>
-            </select>
-          </label>
-          <label class="field-check"><input type="checkbox" name="is_admin" value="1" <%= u.is_admin ? 'checked' : '' %> <%= u.id === currentUserId ? 'disabled' : '' %>> Admin</label>
-          <button type="submit" class="btn btn-sm btn-primary">Save</button>
-        </form>
-        <div class="user-row-actions">
-          <form method="POST" action="/admin/reset-password/<%= u.id %>" class="inline-form" onsubmit="return confirm('Reset this user\'s password?')">
-            <input type="password" name="newPassword" placeholder="New password" minlength="4" required>
-            <button type="submit" class="btn btn-sm btn-secondary">Set Password</button>
-          </form>
-          <% if (u.id !== currentUserId) { %>
-            <form method="POST" action="/admin/delete-user/<%= u.id %>" onsubmit="return confirm('Delete <%= u.username %> and all their scores? This cannot be undone.')">
-              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-            </form>
-          <% } %>
-        </div>
-      </div>
-    </details>
-  <% }) %>
-</div>
-<script>
-  (function () {
-    var box = document.getElementById('memberSearch');
-    if (!box) return;
-    var rows = Array.prototype.slice.call(document.querySelectorAll('.user-row'));
-    var empty = document.getElementById('memberSearchEmpty');
-    box.addEventListener('input', function () {
-      var q = box.value.trim().toLowerCase();
-      var shown = 0;
-      rows.forEach(function (r) {
-        var match = !q || (r.getAttribute('data-name') || '').indexOf(q) !== -1;
-        r.hidden = !match;
-        if (match) shown++;
-      });
-      if (empty) empty.hidden = shown !== 0;
-    });
-  })();
-</script>
 
 <!-- ===== Existing Challenges ===== -->
 <h2>Existing Challenges</h2>

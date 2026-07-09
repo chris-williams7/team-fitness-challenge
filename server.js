@@ -464,11 +464,17 @@ app.get('/leaderboard', requireAuth, (req, res) => {
 });
 
 // ========== Admin Panel ==========
+// Admin: Challenges page (create + existing)
 app.get('/admin', requireAdmin, (req, res) => {
   const challenges = queryAll(
     `SELECT c.*, t.name AS team_name FROM challenges c LEFT JOIN teams t ON c.team_id = t.id
      ORDER BY c.challenge_date DESC, c.created_at DESC`
   );
+  res.render('admin', { challenges });
+});
+
+// Admin: People page (teams + users)
+app.get('/admin/people', requireAdmin, (req, res) => {
   const users = queryAll(
     `SELECT u.id, u.username, u.is_admin, u.team_id, t.name AS team_name
      FROM users u LEFT JOIN teams t ON u.team_id = t.id ORDER BY u.username`
@@ -479,7 +485,7 @@ app.get('/admin', requireAdmin, (req, res) => {
        (SELECT COUNT(*) FROM challenges c2 WHERE c2.team_id = tm.id) AS challenge_count
      FROM teams tm ORDER BY tm.name`
   );
-  res.render('admin', { challenges, users, teams, currentUserId: req.session.user.id });
+  res.render('admin-people', { users, teams, currentUserId: req.session.user.id });
 });
 
 // --- Challenges ---
@@ -527,7 +533,7 @@ app.post('/admin/delete-challenge/:id', requireAdmin, (req, res) => {
   res.redirect('/admin');
 });
 
-// --- Users ---
+// --- Users --- (all redirect to the People page)
 app.post('/admin/create-user', requireAdmin, (req, res) => {
   const username = (req.body.username || '').trim();
   const password = req.body.password || '';
@@ -538,7 +544,7 @@ app.post('/admin/create-user', requireAdmin, (req, res) => {
   const hash = bcrypt.hashSync(password, 10);
   db.run('INSERT INTO users (username, password_hash, is_admin, team_id) VALUES (?, ?, ?, ?)', [username, hash, isAdmin, teamId]);
   saveDatabase();
-  res.redirect('/admin');
+  res.redirect('/admin/people');
 });
 
 app.post('/admin/edit-user/:id', requireAdmin, (req, res) => {
@@ -552,47 +558,47 @@ app.post('/admin/edit-user/:id', requireAdmin, (req, res) => {
   if (id === req.session.user.id) isAdmin = 1;
   db.run('UPDATE users SET username = ?, is_admin = ?, team_id = ? WHERE id = ?', [username, isAdmin, teamId, id]);
   saveDatabase();
-  res.redirect('/admin');
+  res.redirect('/admin/people');
 });
 
 app.post('/admin/delete-user/:id', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (id === req.session.user.id) return res.redirect('/admin'); // can't delete yourself
+  if (id === req.session.user.id) return res.redirect('/admin/people'); // can't delete yourself
   db.run('DELETE FROM scores WHERE user_id = ?', [id]);
   db.run('DELETE FROM users WHERE id = ?', [id]);
   saveDatabase();
-  res.redirect('/admin');
+  res.redirect('/admin/people');
 });
 
 app.post('/admin/reset-password/:id', requireAdmin, (req, res) => {
   const { newPassword } = req.body;
   if (!newPassword || newPassword.length < 4) return res.status(400).send('Password must be at least 4 characters');
-  if (!queryOne('SELECT id FROM users WHERE id = ?', [req.params.id])) return res.redirect('/admin');
+  if (!queryOne('SELECT id FROM users WHERE id = ?', [req.params.id])) return res.redirect('/admin/people');
   const hash = bcrypt.hashSync(newPassword, 10);
   db.run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, req.params.id]);
   saveDatabase();
-  res.redirect('/admin');
+  res.redirect('/admin/people');
 });
 
-// --- Teams ---
+// --- Teams --- (all redirect to the People page)
 app.post('/admin/create-team', requireAdmin, (req, res) => {
   const name = (req.body.name || '').trim();
-  if (!name) return res.redirect('/admin');
+  if (!name) return res.redirect('/admin/people');
   if (!queryOne('SELECT id FROM teams WHERE name = ?', [name])) {
     db.run('INSERT INTO teams (name) VALUES (?)', [name]);
     saveDatabase();
   }
-  res.redirect('/admin');
+  res.redirect('/admin/people');
 });
 
 app.post('/admin/rename-team/:id', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const name = (req.body.name || '').trim();
-  if (!name) return res.redirect('/admin');
+  if (!name) return res.redirect('/admin/people');
   if (queryOne('SELECT id FROM teams WHERE name = ? AND id != ?', [name, id])) return res.status(400).send('Team name taken');
   db.run('UPDATE teams SET name = ? WHERE id = ?', [name, id]);
   saveDatabase();
-  res.redirect('/admin');
+  res.redirect('/admin/people');
 });
 
 app.post('/admin/delete-team/:id', requireAdmin, (req, res) => {
@@ -602,7 +608,7 @@ app.post('/admin/delete-team/:id', requireAdmin, (req, res) => {
   db.run('UPDATE challenges SET team_id = NULL WHERE team_id = ?', [id]);
   db.run('DELETE FROM teams WHERE id = ?', [id]);
   saveDatabase();
-  res.redirect('/admin');
+  res.redirect('/admin/people');
 });
 
 // Change Password (self-service)
