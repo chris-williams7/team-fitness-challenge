@@ -1,19 +1,21 @@
 {
-  "name": "team-fitness-challenge",
-  "version": "1.0.0",
-  "description": "Daily fitness challenge tracker for teams",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "sql.js": "^1.8.0",
-    "bcryptjs": "^2.4.3",
-    "express-session": "^1.17.3",
-    "ejs": "^3.1.9"
-  }
+	"name": "team-fitness-challenge",
+	"version": "1.0.0",
+	"description": "Daily fitness challenge tracker for teams",
+	"main": "server.js",
+	"scripts": {
+		"start": "node server.js",
+		"dev": "nodemon server.js"
+	},
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"dependencies": {
+		"express": "^4.18.2",
+		"@libsql/client": "^0.17.4",
+		"bcryptjs": "^2.4.3",
+		"cookie-session": "^2.1.1",
+		"dotenv": "^16.4.5",
+		"ejs": "^3.1.9"
+	}
 }

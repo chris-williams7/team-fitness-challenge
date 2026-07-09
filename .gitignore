@@ -3,3 +3,5 @@
 *.db
 *.log
 .DS_Store
+.env
+.env.local

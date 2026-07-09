@@ -1,42 +1,59 @@
+require('dotenv').config({ path: ['.env.local', '.env'] });
 const express = require('express');
-const initSqlJs = require('sql.js');
+const { createClient } = require('@libsql/client');
 const bcrypt = require('bcryptjs');
-const session = require('express-session');
-const fs = require('fs').promises;
+const cookieSession = require('cookie-session');
 const path = require('path');
 
 const app = express();
-let db = null;
 
-// Database file path
-const DB_PATH = process.env.RENDER ? '/var/data/fitness.db' : './fitness.db';
-const IS_RENDER = !!process.env.RENDER;
+// ========== Database (libSQL / Turso) ==========
+// Prod + dev both point at a Turso database via TURSO_DATABASE_URL + TURSO_AUTH_TOKEN
+// (keep dev credentials in a gitignored .env). With no env set, falls back to a local
+// libSQL file so the app can still boot offline / in CI.
+const DB_URL = process.env.TURSO_DATABASE_URL
+  || (process.env.NODE_ENV === 'production' ? null : 'file:fitness-dev.db');
+if (!DB_URL) {
+  console.error('TURSO_DATABASE_URL is required in production. Refusing to start.');
+  process.exit(1);
+}
+const client = createClient({
+  url: DB_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+  intMode: 'number', // return SQLite INTEGERs as JS numbers (matches prior behavior)
+});
 
-async function loadDatabase() {
-  const SQL = await initSqlJs();
-
-  try {
-    const fileBuffer = await fs.readFile(DB_PATH);
-    db = new SQL.Database(fileBuffer);
-    console.log(`Loaded existing database from ${DB_PATH}`);
-  } catch (err) {
-    db = new SQL.Database();
-    console.log('Created new database');
-  }
-
-  // Always ensure the schema is up to date (creates tables/columns if missing).
-  ensureSchema();
+// Wrap async route handlers so rejected promises become clean 500s, not crashes.
+function wrap(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-// ---- Schema + idempotent migrations (safe to run on an existing DB) ----
-function hasColumn(table, col) {
-  const res = db.exec(`PRAGMA table_info(${table})`);
-  if (!res.length) return false;
-  return res[0].values.some((row) => row[1] === col); // row[1] = column name
+// ---- Query helpers (async) ----
+async function queryAll(sql, args = []) {
+  const rs = await client.execute({ sql, args });
+  const cols = rs.columns;
+  return rs.rows.map((row) => {
+    const o = {};
+    for (const c of cols) o[c] = row[c];
+    return o;
+  });
+}
+async function queryOne(sql, args = []) {
+  const rows = await queryAll(sql, args);
+  return rows.length ? rows[0] : null;
+}
+async function run(sql, args = []) {
+  return client.execute({ sql, args });
 }
 
-function ensureSchema() {
-  db.run(`
+// ---- Schema + idempotent migrations ----
+async function hasColumn(table, col) {
+  const rs = await client.execute(`PRAGMA table_info(${table})`);
+  return rs.rows.some((r) => r.name === col);
+}
+
+async function ensureSchema() {
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
@@ -60,8 +77,6 @@ function ensureSchema() {
       challenge_id INTEGER NOT NULL,
       score_value REAL NOT NULL,
       submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (challenge_id) REFERENCES challenges(id),
       UNIQUE(user_id, challenge_id)
     );
     CREATE TABLE IF NOT EXISTS teams (
@@ -71,105 +86,62 @@ function ensureSchema() {
     );
   `);
 
-  // Migrations: add team association columns if they don't exist yet.
-  if (!hasColumn('users', 'team_id')) db.run('ALTER TABLE users ADD COLUMN team_id INTEGER');
-  if (!hasColumn('challenges', 'team_id')) db.run('ALTER TABLE challenges ADD COLUMN team_id INTEGER');
+  if (!(await hasColumn('users', 'team_id'))) await run('ALTER TABLE users ADD COLUMN team_id INTEGER');
+  if (!(await hasColumn('challenges', 'team_id'))) await run('ALTER TABLE challenges ADD COLUMN team_id INTEGER');
 
-  // Ensure a default admin exists.
-  const stmt = db.prepare("SELECT COUNT(*) as count FROM users WHERE username = 'admin'");
-  stmt.step();
-  const result = stmt.getAsObject();
-  stmt.free();
-  if (result.count === 0) {
+  const c = await queryOne("SELECT COUNT(*) as count FROM users WHERE username = 'admin'");
+  if (c.count === 0) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.run('INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)', ['admin', hash]);
+    await run('INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)', ['admin', hash]);
     console.log('Default admin created — username: admin, password: admin123');
   }
 }
 
-// ---- Persistence: atomic, non-overlapping saves ----
-// Writes the current in-memory DB to disk atomically (temp file + rename).
-async function writeDbToDisk() {
-  const buffer = Buffer.from(db.export());
-  const dirPath = path.dirname(DB_PATH);
-  try { await fs.mkdir(dirPath, { recursive: true }); } catch (e) { /* exists */ }
-  const tmp = `${DB_PATH}.tmp`;
-  await fs.writeFile(tmp, buffer);
-  await fs.rename(tmp, DB_PATH); // atomic swap on same filesystem
-}
-
-let saving = false;
-let saveQueued = false;
-async function saveDatabase() {
-  if (!db) return;
-  if (saving) { saveQueued = true; return; }
-  saving = true;
-  try {
-    await writeDbToDisk();
-  } catch (err) {
-    console.error('Failed to save database:', err.message);
-  } finally {
-    saving = false;
-    if (saveQueued) { saveQueued = false; saveDatabase(); }
-  }
-}
-
-// Guaranteed final flush for shutdown: waits out any in-flight save, then writes
-// the latest state directly so the most recent change can't be lost on restart.
-async function flushDatabase() {
-  if (!db) return;
-  while (saving) { await new Promise((r) => setTimeout(r, 20)); }
-  try { await writeDbToDisk(); } catch (err) { console.error('Failed to flush database:', err.message); }
-}
-
-// ========== Query helpers ==========
-function queryAll(sql, params = []) {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-  const rows = [];
-  while (stmt.step()) rows.push(stmt.getAsObject());
-  stmt.free();
-  return rows;
-}
-
-function queryOne(sql, params = []) {
-  const rows = queryAll(sql, params);
-  return rows.length ? rows[0] : null;
-}
-
-// ========== Middleware Setup ==========
+// ========== Middleware ==========
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: true }));
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'fitness-secret-key-change-on-prod',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { maxAge: 24 * 60 * 60 * 1000 }
+
+// Stateless signed-cookie sessions — no server-side store, so cluster nodes share
+// sessions as long as they share SESSION_SECRET.
+app.use(cookieSession({
+  name: 'tfc_session',
+  keys: [process.env.SESSION_SECRET || 'fitness-secret-key-change-on-prod'],
+  maxAge: 24 * 60 * 60 * 1000,
+  httpOnly: true,
+  sameSite: 'lax',
 }));
 
-// Re-hydrate the session user from the DB each request so role/team/username
-// changes take effect immediately, and expose template locals.
-app.use((req, res, next) => {
-  if (req.session.user) {
-    const u = queryOne('SELECT id, username, is_admin, team_id FROM users WHERE id = ?', [req.session.user.id]);
+// Re-hydrate the user from the DB each request so role/team/username changes take
+// effect immediately, and expose template locals.
+app.use(wrap(async (req, res, next) => {
+  if (req.session && req.session.user) {
+    const u = await queryOne('SELECT id, username, is_admin, team_id FROM users WHERE id = ?', [req.session.user.id]);
     if (u) {
       req.session.user = { id: u.id, username: u.username, is_admin: !!u.is_admin, team_id: u.team_id ?? null };
     } else {
-      req.session.user = null; // account was deleted
+      req.session = null; // account was deleted
     }
   }
-  res.locals.user = req.session.user || null;
-  res.locals.activeTeam = req.session.activeTeam || 'all';
-  res.locals.teams = db ? queryAll('SELECT id, name FROM teams ORDER BY name') : [];
+  res.locals.user = (req.session && req.session.user) || null;
+  res.locals.activeTeam = (req.session && req.session.activeTeam) || 'all';
+  res.locals.teams = await queryAll('SELECT id, name FROM teams ORDER BY name');
   res.locals.linkify = linkify;
   res.locals.formatScore = formatScore;
   next();
-});
+}));
 
-// Escape HTML, then turn bare URLs into clickable links. Escaping first keeps
-// this XSS-safe even though the result is emitted with <%- %> (unescaped).
+function requireAuth(req, res, next) {
+  if (!req.session || !req.session.user) return res.redirect('/login');
+  next();
+}
+function requireAdmin(req, res, next) {
+  if (!req.session || !req.session.user || !req.session.user.is_admin) return res.redirect('/');
+  next();
+}
+
+// ========== Presentation helpers ==========
 function escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;')
@@ -178,18 +150,15 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-
 function linkify(text) {
   const escaped = escapeHtml(text);
   return escaped.replace(/((?:https?:\/\/|www\.)[^\s<]+)/g, (match) => {
-    // Peel trailing sentence punctuation off the end of the URL.
     const trail = (match.match(/[.,!?)\]]+$/) || [''])[0];
     const url = match.slice(0, match.length - trail.length);
     const href = url.startsWith('www.') ? `https://${url}` : url;
     return `<a href="${href}" target="_blank" rel="noopener noreferrer">${url}</a>${trail}`;
   });
 }
-
 // Display a stored score. Fastest-time challenges store total seconds but show m:ss.
 function formatScore(value, scoringType, unit) {
   if (scoringType !== 'min_time') return `${value} ${unit}`;
@@ -201,20 +170,7 @@ function formatScore(value, scoringType, unit) {
   return `${m}:${secStr}`;
 }
 
-function requireAuth(req, res, next) {
-  if (!req.session.user) return res.redirect('/login');
-  next();
-}
-
-function requireAdmin(req, res, next) {
-  if (!req.session.user || !req.session.user.is_admin) return res.redirect('/');
-  next();
-}
-
 // ========== Team scoping helpers ==========
-// Determine which team the current request is scoped to.
-//   admins: follow their session "active team" toggle ('all' = everything)
-//   players: always locked to their own team
 function scopeFor(req) {
   const user = req.session.user;
   if (user.is_admin) {
@@ -224,24 +180,18 @@ function scopeFor(req) {
   }
   return { all: false, teamId: user.team_id != null ? user.team_id : null };
 }
-
-function scopeName(scope) {
+async function scopeName(scope) {
   if (scope.all) return 'All Teams';
   if (scope.teamId == null) return 'Unassigned';
-  const t = queryOne('SELECT name FROM teams WHERE id = ?', [scope.teamId]);
+  const t = await queryOne('SELECT name FROM teams WHERE id = ?', [scope.teamId]);
   return t ? t.name : 'Team';
 }
-
-// WHERE fragment restricting *challenges* to the scope.
-// A challenge with team_id = NULL is global (visible to every team).
 function challengeTeamClause(scope, alias) {
   const col = alias ? `${alias}.team_id` : 'team_id';
   if (scope.all) return { sql: '', params: [] };
   if (scope.teamId == null) return { sql: ` AND ${col} IS NULL`, params: [] };
   return { sql: ` AND (${col} IS NULL OR ${col} = ?)`, params: [scope.teamId] };
 }
-
-// WHERE fragment restricting *users* to the scope.
 function userTeamClause(scope, alias) {
   const col = alias ? `${alias}.team_id` : 'team_id';
   if (scope.all) return { sql: '', params: [] };
@@ -255,32 +205,27 @@ function calculatePoints(scores, scoringType) {
   );
   const pointsMap = [10, 8, 6, 5, 4, 3, 2, 1];
   const pointsAt = (i) => (i < pointsMap.length ? pointsMap[i] : 1);
-
   const result = [];
   let i = 0;
   while (i < sorted.length) {
-    // Group everyone with the identical score into one tie block.
     let j = i;
     while (j < sorted.length && sorted[j].score_value === sorted[i].score_value) j++;
-    const rank = i + 1;                 // standard competition ranking (1, 1, 3, ...)
-    const points = pointsAt(i);         // tied players all earn the top position's points
+    const rank = i + 1;
+    const points = pointsAt(i);
     const tied = (j - i) > 1;
-    for (let k = i; k < j; k++) {
-      result.push({ ...sorted[k], rank, points, tied });
-    }
+    for (let k = i; k < j; k++) result.push({ ...sorted[k], rank, points, tied });
     i = j;
   }
   return result;
 }
 
 // ========== Date helpers ==========
-// "Today" is computed in the team's local timezone, so the day rolls over at
-// local midnight rather than at UTC midnight. Set TIMEZONE in the environment.
+// "Today" is computed in the team's local timezone (set TIMEZONE in the environment)
+// so the day rolls over at local midnight rather than UTC midnight.
 const APP_TZ = process.env.TIMEZONE || 'America/New_York';
 function todayStr() {
   return new Date().toLocaleDateString('en-CA', { timeZone: APP_TZ }); // YYYY-MM-DD
 }
-// A challenge is "open" (submittable) once its date is today or earlier.
 function isChallengeOpen(challenge, today = todayStr()) {
   return challenge.challenge_date <= today;
 }
@@ -288,72 +233,68 @@ function isChallengeOpen(challenge, today = todayStr()) {
 // ========== Routes ==========
 
 // Home Dashboard
-app.get('/', requireAuth, (req, res) => {
+app.get('/', requireAuth, wrap(async (req, res) => {
   const scope = scopeFor(req);
   const today = todayStr();
   const uid = req.session.user.id;
 
-  // Featured: every challenge dated today (all of them).
   const tc = challengeTeamClause(scope, null);
-  const featured = queryAll(
+  const featured = await queryAll(
     `SELECT * FROM challenges WHERE challenge_date = ?${tc.sql} ORDER BY created_at DESC`,
     [today, ...tc.params]
   );
   for (const ch of featured) {
-    ch.userScore = queryOne('SELECT * FROM scores WHERE user_id = ? AND challenge_id = ?', [uid, ch.id]);
-    const p = queryOne('SELECT COUNT(DISTINCT user_id) as count FROM scores WHERE challenge_id = ?', [ch.id]);
+    ch.userScore = await queryOne('SELECT * FROM scores WHERE user_id = ? AND challenge_id = ?', [uid, ch.id]);
+    const p = await queryOne('SELECT COUNT(DISTINCT user_id) as count FROM scores WHERE challenge_id = ?', [ch.id]);
     ch.participants = p ? p.count : 0;
   }
 
   const rc = challengeTeamClause(scope, 'c');
-  // Upcoming: future-dated challenges, visible to everyone but not yet open.
-  const upcoming = queryAll(
+  const upcoming = await queryAll(
     `SELECT c.* FROM challenges c WHERE c.challenge_date > ?${rc.sql} ORDER BY c.challenge_date ASC LIMIT 10`,
     [today, ...rc.params]
   );
-  // Recent: past challenges (history).
-  const recentChallenges = queryAll(
+  const recentChallenges = await queryAll(
     `SELECT c.*, COUNT(s.id) as score_count FROM challenges c LEFT JOIN scores s ON c.id = s.challenge_id
      WHERE c.challenge_date < ?${rc.sql} GROUP BY c.id ORDER BY c.challenge_date DESC LIMIT 5`,
     [today, ...rc.params]
   );
 
-  res.render('dashboard', { featured, upcoming, recentChallenges, teamName: scopeName(scope) });
-});
+  res.render('dashboard', { featured, upcoming, recentChallenges, teamName: await scopeName(scope) });
+}));
 
 // Login/Register
 app.get('/login', (req, res) => res.render('login', { error: null }));
-app.post('/login', (req, res) => {
+app.post('/login', wrap(async (req, res) => {
   const { username, password } = req.body;
-  const user = queryOne('SELECT * FROM users WHERE username = ?', [username]);
+  const user = await queryOne('SELECT * FROM users WHERE username = ?', [username]);
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.render('login', { error: 'Invalid credentials' });
   }
   req.session.user = { id: user.id, username: user.username, is_admin: !!user.is_admin, team_id: user.team_id ?? null };
   res.redirect('/');
-});
+}));
 
 app.get('/register', (req, res) => res.render('register', { error: null }));
-app.post('/register', (req, res) => {
+app.post('/register', wrap(async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password || username.length < 3 || password.length < 4) {
     return res.render('register', { error: 'Username 3+ chars, password 4+ chars' });
   }
-  if (queryOne('SELECT id FROM users WHERE username = ?', [username])) {
+  if (await queryOne('SELECT id FROM users WHERE username = ?', [username])) {
     return res.render('register', { error: 'Username taken' });
   }
   // Player picks their own team at signup; only accept a real team id.
   let teamId = req.body.team_id ? parseInt(req.body.team_id, 10) : null;
-  if (teamId != null && !queryOne('SELECT id FROM teams WHERE id = ?', [teamId])) teamId = null;
+  if (teamId != null && !(await queryOne('SELECT id FROM teams WHERE id = ?', [teamId]))) teamId = null;
   const hash = bcrypt.hashSync(password, 10);
-  db.run('INSERT INTO users (username, password_hash, team_id) VALUES (?, ?, ?)', [username, hash, teamId]);
-  const lastId = db.exec('SELECT last_insert_rowid() as id')[0]?.values?.[0]?.[0] || 0;
-  saveDatabase();
+  const rs = await run('INSERT INTO users (username, password_hash, team_id) VALUES (?, ?, ?)', [username, hash, teamId]);
+  const lastId = Number(rs.lastInsertRowid);
   req.session.user = { id: lastId, username, is_admin: false, team_id: teamId };
   res.redirect('/');
-});
+}));
 
-app.post('/logout', (req, res) => { req.session.destroy(() => res.redirect('/login')); });
+app.post('/logout', (req, res) => { req.session = null; res.redirect('/login'); });
 
 // Admin team toggle
 app.post('/set-team', requireAdmin, (req, res) => {
@@ -363,40 +304,41 @@ app.post('/set-team', requireAdmin, (req, res) => {
 });
 
 // Challenge View & Submit
-app.get('/challenge/:id', requireAuth, (req, res) => {
+app.get('/challenge/:id', requireAuth, wrap(async (req, res) => {
   const scope = scopeFor(req);
-  const challenge = queryOne(
+  const challenge = await queryOne(
     'SELECT c.*, t.name AS team_name FROM challenges c LEFT JOIN teams t ON c.team_id = t.id WHERE c.id = ?',
     [req.params.id]
   );
   if (!challenge) return res.redirect('/');
-  // Block viewing another team's challenge.
   if (!scope.all && challenge.team_id != null && challenge.team_id !== scope.teamId) return res.redirect('/');
 
-  const myScore = queryOne('SELECT * FROM scores WHERE user_id = ? AND challenge_id = ?', [req.session.user.id, challenge.id]);
+  const myScore = await queryOne('SELECT * FROM scores WHERE user_id = ? AND challenge_id = ?', [req.session.user.id, challenge.id]);
 
   const utc = userTeamClause(scope, 'u');
-  const allScores = queryAll(
+  const allScores = await queryAll(
     `SELECT s.*, u.username FROM scores s JOIN users u ON s.user_id = u.id
      WHERE s.challenge_id = ?${utc.sql} ORDER BY s.submitted_at ASC`,
     [challenge.id, ...utc.params]
   );
 
-  const rankedScores = calculatePoints(allScores, challenge.scoring_type);
-  res.render('challenge', { challenge, myScore, rankedScores, isOpen: isChallengeOpen(challenge) });
-});
+  res.render('challenge', {
+    challenge,
+    myScore,
+    rankedScores: calculatePoints(allScores, challenge.scoring_type),
+    isOpen: isChallengeOpen(challenge),
+  });
+}));
 
-app.post('/challenge/:id/submit', requireAuth, (req, res) => {
+app.post('/challenge/:id/submit', requireAuth, wrap(async (req, res) => {
   const scope = scopeFor(req);
-  const challenge = queryOne('SELECT * FROM challenges WHERE id = ?', [req.params.id]);
+  const challenge = await queryOne('SELECT * FROM challenges WHERE id = ?', [req.params.id]);
   if (!challenge) return res.redirect('/');
   if (!scope.all && challenge.team_id != null && challenge.team_id !== scope.teamId) return res.redirect('/');
-  // Can't submit before a challenge opens (its date is in the future).
   if (!isChallengeOpen(challenge)) return res.redirect(`/challenge/${challenge.id}`);
 
   let scoreValue;
   if (challenge.scoring_type === 'min_time') {
-    // Fastest-time challenges are entered as minutes + seconds, stored as total seconds.
     const minutes = parseInt(req.body.minutes, 10) || 0;
     const seconds = parseFloat(req.body.seconds) || 0;
     if (minutes < 0 || seconds < 0 || seconds >= 60) return res.status(400).send('Invalid time (seconds must be 0-59)');
@@ -407,16 +349,15 @@ app.post('/challenge/:id/submit', requireAuth, (req, res) => {
     if (isNaN(scoreValue) || scoreValue < 0) return res.status(400).send('Invalid score');
   }
 
-  db.run(
+  await run(
     "INSERT OR REPLACE INTO scores (user_id, challenge_id, score_value, submitted_at) VALUES (?, ?, ?, datetime('now'))",
     [req.session.user.id, challenge.id, scoreValue]
   );
-  saveDatabase();
   res.redirect(`/challenge/${challenge.id}`);
-});
+}));
 
 // Leaderboard
-app.get('/leaderboard', requireAuth, (req, res) => {
+app.get('/leaderboard', requireAuth, wrap(async (req, res) => {
   const scope = scopeFor(req);
   const period = req.query.period || 'all';
   let dateFilter = '';
@@ -425,7 +366,7 @@ app.get('/leaderboard', requireAuth, (req, res) => {
 
   const ctc = challengeTeamClause(scope, 'c');
   const utc = userTeamClause(scope, 'u');
-  const allScores = queryAll(
+  const allScores = await queryAll(
     `SELECT s.user_id, u.username, s.score_value, s.challenge_id, c.scoring_type, c.title, c.category
      FROM scores s JOIN users u ON s.user_id = u.id JOIN challenges c ON s.challenge_id = c.id
      WHERE 1=1 ${dateFilter}${ctc.sql}${utc.sql}`,
@@ -454,168 +395,153 @@ app.get('/leaderboard', requireAuth, (req, res) => {
   const leaderboard = Object.values(userTotals).sort((a, b) => b.totalPoints - a.totalPoints).map((e, i) => ({ ...e, rank: i + 1 }));
 
   const clc = challengeTeamClause(scope, 'c');
-  const challengesList = queryAll(
+  const challengesList = await queryAll(
     `SELECT c.id, c.title, c.category, c.scoring_type, c.challenge_date FROM challenges c
      WHERE 1=1 ${dateFilter}${clc.sql} ORDER BY c.challenge_date DESC`,
     clc.params
   );
 
-  res.render('leaderboard', { leaderboard, period, challengesList, teamName: scopeName(scope) });
-});
+  res.render('leaderboard', { leaderboard, period, challengesList, teamName: await scopeName(scope) });
+}));
 
 // ========== Admin Panel ==========
 // Admin: Challenges page (create + existing)
-app.get('/admin', requireAdmin, (req, res) => {
-  const challenges = queryAll(
+app.get('/admin', requireAdmin, wrap(async (req, res) => {
+  const challenges = await queryAll(
     `SELECT c.*, t.name AS team_name FROM challenges c LEFT JOIN teams t ON c.team_id = t.id
      ORDER BY c.challenge_date DESC, c.created_at DESC`
   );
   res.render('admin', { challenges });
-});
+}));
 
 // Admin: People page (teams + users)
-app.get('/admin/people', requireAdmin, (req, res) => {
-  const users = queryAll(
+app.get('/admin/people', requireAdmin, wrap(async (req, res) => {
+  const users = await queryAll(
     `SELECT u.id, u.username, u.is_admin, u.team_id, t.name AS team_name
      FROM users u LEFT JOIN teams t ON u.team_id = t.id ORDER BY u.username`
   );
-  const teams = queryAll(
+  const teams = await queryAll(
     `SELECT tm.id, tm.name,
        (SELECT COUNT(*) FROM users u2 WHERE u2.team_id = tm.id) AS member_count,
        (SELECT COUNT(*) FROM challenges c2 WHERE c2.team_id = tm.id) AS challenge_count
      FROM teams tm ORDER BY tm.name`
   );
   res.render('admin-people', { users, teams, currentUserId: req.session.user.id });
-});
+}));
 
 // --- Challenges ---
-app.post('/admin/create-challenge', requireAdmin, (req, res) => {
+app.post('/admin/create-challenge', requireAdmin, wrap(async (req, res) => {
   const { title, description, category, scoringType, unit, challengeDate } = req.body;
   const teamId = req.body.team_id ? parseInt(req.body.team_id, 10) : null;
   if (!title || !category || !scoringType || !unit || !challengeDate) return res.status(400).send('Missing fields');
-  db.run(
+  await run(
     'INSERT INTO challenges (title, description, category, scoring_type, unit, challenge_date, team_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [title, description || '', category, scoringType, unit, challengeDate, teamId]
   );
-  saveDatabase();
   res.redirect('/admin');
-});
+}));
 
-// Quick inline team reassignment.
-app.post('/admin/edit-challenge/:id', requireAdmin, (req, res) => {
+app.post('/admin/edit-challenge/:id', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const teamId = req.body.team_id ? parseInt(req.body.team_id, 10) : null;
-  if (!queryOne('SELECT id FROM challenges WHERE id = ?', [id])) return res.redirect('/admin');
-  db.run('UPDATE challenges SET team_id = ? WHERE id = ?', [teamId, id]);
-  saveDatabase();
+  if (!(await queryOne('SELECT id FROM challenges WHERE id = ?', [id]))) return res.redirect('/admin');
+  await run('UPDATE challenges SET team_id = ? WHERE id = ?', [teamId, id]);
   res.redirect('/admin');
-});
+}));
 
-// Full challenge edit (title, description, category, scoring, unit, date, team).
-app.post('/admin/update-challenge/:id', requireAdmin, (req, res) => {
+app.post('/admin/update-challenge/:id', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!queryOne('SELECT id FROM challenges WHERE id = ?', [id])) return res.redirect('/admin');
+  if (!(await queryOne('SELECT id FROM challenges WHERE id = ?', [id]))) return res.redirect('/admin');
   const { title, description, category, scoringType, unit, challengeDate } = req.body;
   const teamId = req.body.team_id ? parseInt(req.body.team_id, 10) : null;
   if (!title || !category || !scoringType || !unit || !challengeDate) return res.status(400).send('Missing fields');
-  db.run(
+  await run(
     'UPDATE challenges SET title = ?, description = ?, category = ?, scoring_type = ?, unit = ?, challenge_date = ?, team_id = ? WHERE id = ?',
     [title, description || '', category, scoringType, unit, challengeDate, teamId, id]
   );
-  saveDatabase();
   res.redirect('/admin');
-});
+}));
 
-app.post('/admin/delete-challenge/:id', requireAdmin, (req, res) => {
-  db.run('DELETE FROM scores WHERE challenge_id = ?', [req.params.id]);
-  db.run('DELETE FROM challenges WHERE id = ?', [req.params.id]);
-  saveDatabase();
+app.post('/admin/delete-challenge/:id', requireAdmin, wrap(async (req, res) => {
+  await run('DELETE FROM scores WHERE challenge_id = ?', [req.params.id]);
+  await run('DELETE FROM challenges WHERE id = ?', [req.params.id]);
   res.redirect('/admin');
-});
+}));
 
 // --- Users --- (all redirect to the People page)
-app.post('/admin/create-user', requireAdmin, (req, res) => {
+app.post('/admin/create-user', requireAdmin, wrap(async (req, res) => {
   const username = (req.body.username || '').trim();
   const password = req.body.password || '';
   const isAdmin = req.body.is_admin ? 1 : 0;
   const teamId = req.body.team_id ? parseInt(req.body.team_id, 10) : null;
   if (username.length < 3 || password.length < 4) return res.status(400).send('Username must be 3+ chars and password 4+ chars');
-  if (queryOne('SELECT id FROM users WHERE username = ?', [username])) return res.status(400).send('Username taken');
+  if (await queryOne('SELECT id FROM users WHERE username = ?', [username])) return res.status(400).send('Username taken');
   const hash = bcrypt.hashSync(password, 10);
-  db.run('INSERT INTO users (username, password_hash, is_admin, team_id) VALUES (?, ?, ?, ?)', [username, hash, isAdmin, teamId]);
-  saveDatabase();
+  await run('INSERT INTO users (username, password_hash, is_admin, team_id) VALUES (?, ?, ?, ?)', [username, hash, isAdmin, teamId]);
   res.redirect('/admin/people');
-});
+}));
 
-app.post('/admin/edit-user/:id', requireAdmin, (req, res) => {
+app.post('/admin/edit-user/:id', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const username = (req.body.username || '').trim();
   let isAdmin = req.body.is_admin ? 1 : 0;
   const teamId = req.body.team_id ? parseInt(req.body.team_id, 10) : null;
   if (username.length < 3) return res.status(400).send('Username must be 3+ chars');
-  if (queryOne('SELECT id FROM users WHERE username = ? AND id != ?', [username, id])) return res.status(400).send('Username taken');
-  // Don't let an admin lock themselves out by removing their own admin rights.
-  if (id === req.session.user.id) isAdmin = 1;
-  db.run('UPDATE users SET username = ?, is_admin = ?, team_id = ? WHERE id = ?', [username, isAdmin, teamId, id]);
-  saveDatabase();
+  if (await queryOne('SELECT id FROM users WHERE username = ? AND id != ?', [username, id])) return res.status(400).send('Username taken');
+  if (id === req.session.user.id) isAdmin = 1; // don't let an admin lock themselves out
+  await run('UPDATE users SET username = ?, is_admin = ?, team_id = ? WHERE id = ?', [username, isAdmin, teamId, id]);
   res.redirect('/admin/people');
-});
+}));
 
-app.post('/admin/delete-user/:id', requireAdmin, (req, res) => {
+app.post('/admin/delete-user/:id', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (id === req.session.user.id) return res.redirect('/admin/people'); // can't delete yourself
-  db.run('DELETE FROM scores WHERE user_id = ?', [id]);
-  db.run('DELETE FROM users WHERE id = ?', [id]);
-  saveDatabase();
+  if (id === req.session.user.id) return res.redirect('/admin/people');
+  await run('DELETE FROM scores WHERE user_id = ?', [id]);
+  await run('DELETE FROM users WHERE id = ?', [id]);
   res.redirect('/admin/people');
-});
+}));
 
-app.post('/admin/reset-password/:id', requireAdmin, (req, res) => {
+app.post('/admin/reset-password/:id', requireAdmin, wrap(async (req, res) => {
   const { newPassword } = req.body;
   if (!newPassword || newPassword.length < 4) return res.status(400).send('Password must be at least 4 characters');
-  if (!queryOne('SELECT id FROM users WHERE id = ?', [req.params.id])) return res.redirect('/admin/people');
+  if (!(await queryOne('SELECT id FROM users WHERE id = ?', [req.params.id]))) return res.redirect('/admin/people');
   const hash = bcrypt.hashSync(newPassword, 10);
-  db.run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, req.params.id]);
-  saveDatabase();
+  await run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, req.params.id]);
   res.redirect('/admin/people');
-});
+}));
 
 // --- Teams --- (all redirect to the People page)
-app.post('/admin/create-team', requireAdmin, (req, res) => {
+app.post('/admin/create-team', requireAdmin, wrap(async (req, res) => {
   const name = (req.body.name || '').trim();
   if (!name) return res.redirect('/admin/people');
-  if (!queryOne('SELECT id FROM teams WHERE name = ?', [name])) {
-    db.run('INSERT INTO teams (name) VALUES (?)', [name]);
-    saveDatabase();
+  if (!(await queryOne('SELECT id FROM teams WHERE name = ?', [name]))) {
+    await run('INSERT INTO teams (name) VALUES (?)', [name]);
   }
   res.redirect('/admin/people');
-});
+}));
 
-app.post('/admin/rename-team/:id', requireAdmin, (req, res) => {
+app.post('/admin/rename-team/:id', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const name = (req.body.name || '').trim();
   if (!name) return res.redirect('/admin/people');
-  if (queryOne('SELECT id FROM teams WHERE name = ? AND id != ?', [name, id])) return res.status(400).send('Team name taken');
-  db.run('UPDATE teams SET name = ? WHERE id = ?', [name, id]);
-  saveDatabase();
+  if (await queryOne('SELECT id FROM teams WHERE name = ? AND id != ?', [name, id])) return res.status(400).send('Team name taken');
+  await run('UPDATE teams SET name = ? WHERE id = ?', [name, id]);
   res.redirect('/admin/people');
-});
+}));
 
-app.post('/admin/delete-team/:id', requireAdmin, (req, res) => {
+app.post('/admin/delete-team/:id', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  // Unassign members and make its challenges global rather than orphaning them.
-  db.run('UPDATE users SET team_id = NULL WHERE team_id = ?', [id]);
-  db.run('UPDATE challenges SET team_id = NULL WHERE team_id = ?', [id]);
-  db.run('DELETE FROM teams WHERE id = ?', [id]);
-  saveDatabase();
+  await run('UPDATE users SET team_id = NULL WHERE team_id = ?', [id]);
+  await run('UPDATE challenges SET team_id = NULL WHERE team_id = ?', [id]);
+  await run('DELETE FROM teams WHERE id = ?', [id]);
   res.redirect('/admin/people');
-});
+}));
 
 // Change Password (self-service)
 app.get('/change-password', requireAuth, (req, res) => res.render('change-password', { error: null, success: null }));
-app.post('/change-password', (req, res) => {
+app.post('/change-password', requireAuth, wrap(async (req, res) => {
   const { currentPassword, newPassword, confirmPassword } = req.body;
-  const userData = queryOne('SELECT password_hash FROM users WHERE id = ?', [req.session.user.id]);
+  const userData = await queryOne('SELECT password_hash FROM users WHERE id = ?', [req.session.user.id]);
   if (!userData || !bcrypt.compareSync(currentPassword, userData.password_hash)) {
     return res.render('change-password', { error: 'Current password incorrect', success: null });
   }
@@ -629,45 +555,27 @@ app.post('/change-password', (req, res) => {
     return res.render('change-password', { error: 'Must be different', success: null });
   }
   const newHash = bcrypt.hashSync(newPassword, 10);
-  db.run('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, req.session.user.id]);
-  saveDatabase();
+  await run('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, req.session.user.id]);
   res.render('change-password', { error: null, success: 'Password updated!' });
-});
+}));
 
 // ========== Error handling ==========
-// Any error thrown in a (synchronous) route lands here -> clean 500 instead of
-// crashing the whole process and taking the site down.
 app.use((err, req, res, next) => {
   console.error('Route error:', err && err.stack ? err.stack : err);
   if (res.headersSent) return next(err);
   res.status(500).send('Something went wrong. Please try again.');
 });
 
-// Last-resort guards so an unexpected async error never kills the server.
 process.on('unhandledRejection', (reason) => console.error('Unhandled rejection:', reason));
 process.on('uncaughtException', (err) => console.error('Uncaught exception:', err));
 
-// ========== Graceful Shutdown ==========
-async function shutdown() {
-  console.log('\nShutting down... Saving database.');
-  await flushDatabase();
-  console.log('Goodbye!');
-  process.exit(0);
-}
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-
-// ========== Start Server ==========
+// ========== Start ==========
 const PORT = process.env.PORT || 3000;
-
-loadDatabase().then(() => {
-  console.log(`Starting server on port ${PORT}...`);
+ensureSchema().then(() => {
   app.listen(PORT, () => {
     console.log(`🚀 Running on port ${PORT}`);
-    console.log(`${IS_RENDER ? '⚠️ RENDER MODE: Data persists to /var/data/fitness.db' : '💾 LOCAL MODE: Data saves to ./fitness.db'}`);
+    console.log(`🗄️  DB: ${DB_URL.startsWith('file:') ? DB_URL + ' (local file)' : 'Turso (remote)'}`);
   });
-  // Periodic backstop save (in addition to save-after-mutation + shutdown save).
-  setInterval(saveDatabase, 5 * 60 * 1000);
 }).catch((err) => {
   console.error('Failed to initialize database:', err);
   process.exit(1);
