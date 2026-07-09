@@ -63,40 +63,65 @@
 </div>
 
 <!-- ===== Manage Users ===== -->
-<h2>Team Members</h2>
+<h2>Team Members <span class="muted count-pill"><%= users.length %></span></h2>
+<input type="search" id="memberSearch" class="member-search" placeholder="🔍  Search members by name…" autocomplete="off">
+<p class="muted member-search-empty" id="memberSearchEmpty" hidden>No members match your search.</p>
 <div class="user-admin-list">
   <% users.forEach(u => { %>
-    <div class="card user-admin-card">
-      <div class="user-admin-head">
-        <strong><%= u.username %></strong>
-        <%= u.is_admin ? '👑 Admin' : 'Player' %><% if (u.team_name) { %> · <span class="team-tag"><%= u.team_name %></span><% } %>
-        <% if (u.id === currentUserId) { %> <span class="muted">(you)</span><% } %>
-      </div>
-
-      <form method="POST" action="/admin/edit-user/<%= u.id %>" class="user-admin-row">
-        <input type="text" name="username" value="<%= u.username %>" minlength="3" required>
-        <select name="team_id">
-          <option value="">— No team —</option>
-          <% teams.forEach(t => { %><option value="<%= t.id %>" <%= u.team_id === t.id ? 'selected' : '' %>><%= t.name %></option><% }) %>
-        </select>
-        <label class="checkbox-label"><input type="checkbox" name="is_admin" value="1" <%= u.is_admin ? 'checked' : '' %> <%= u.id === currentUserId ? 'disabled' : '' %>> Admin</label>
-        <button type="submit" class="btn btn-sm btn-primary">Save</button>
-      </form>
-
-      <div class="user-admin-actions">
-        <form method="POST" action="/admin/reset-password/<%= u.id %>" class="inline-form" onsubmit="return confirm('Reset this user\'s password?')">
-          <input type="password" name="newPassword" placeholder="New password" minlength="4" required>
-          <button type="submit" class="btn btn-sm btn-secondary">Set Password</button>
+    <details class="card user-row" data-name="<%= u.username.toLowerCase() %>">
+      <summary class="user-row-summary">
+        <span class="user-row-name"><%= u.username %><% if (u.id === currentUserId) { %> <span class="muted">(you)</span><% } %></span>
+        <span class="user-row-tags">
+          <span class="role-badge <%= u.is_admin ? 'is-admin' : '' %>"><%= u.is_admin ? '👑 Admin' : 'Player' %></span>
+          <% if (u.team_name) { %><span class="team-tag"><%= u.team_name %></span><% } else { %><span class="muted no-team">No team</span><% } %>
+        </span>
+        <span class="user-row-toggle">Edit</span>
+      </summary>
+      <div class="user-row-body">
+        <form method="POST" action="/admin/edit-user/<%= u.id %>" class="user-edit-grid">
+          <label class="field"><span>Username</span><input type="text" name="username" value="<%= u.username %>" minlength="3" required></label>
+          <label class="field"><span>Team</span>
+            <select name="team_id">
+              <option value="">— No team —</option>
+              <% teams.forEach(t => { %><option value="<%= t.id %>" <%= u.team_id === t.id ? 'selected' : '' %>><%= t.name %></option><% }) %>
+            </select>
+          </label>
+          <label class="field-check"><input type="checkbox" name="is_admin" value="1" <%= u.is_admin ? 'checked' : '' %> <%= u.id === currentUserId ? 'disabled' : '' %>> Admin</label>
+          <button type="submit" class="btn btn-sm btn-primary">Save</button>
         </form>
-        <% if (u.id !== currentUserId) { %>
-          <form method="POST" action="/admin/delete-user/<%= u.id %>" style="display:inline;" onsubmit="return confirm('Delete <%= u.username %> and all their scores? This cannot be undone.')">
-            <button type="submit" class="btn btn-sm btn-danger">Delete User</button>
+        <div class="user-row-actions">
+          <form method="POST" action="/admin/reset-password/<%= u.id %>" class="inline-form" onsubmit="return confirm('Reset this user\'s password?')">
+            <input type="password" name="newPassword" placeholder="New password" minlength="4" required>
+            <button type="submit" class="btn btn-sm btn-secondary">Set Password</button>
           </form>
-        <% } %>
+          <% if (u.id !== currentUserId) { %>
+            <form method="POST" action="/admin/delete-user/<%= u.id %>" onsubmit="return confirm('Delete <%= u.username %> and all their scores? This cannot be undone.')">
+              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+            </form>
+          <% } %>
+        </div>
       </div>
-    </div>
+    </details>
   <% }) %>
 </div>
+<script>
+  (function () {
+    var box = document.getElementById('memberSearch');
+    if (!box) return;
+    var rows = Array.prototype.slice.call(document.querySelectorAll('.user-row'));
+    var empty = document.getElementById('memberSearchEmpty');
+    box.addEventListener('input', function () {
+      var q = box.value.trim().toLowerCase();
+      var shown = 0;
+      rows.forEach(function (r) {
+        var match = !q || (r.getAttribute('data-name') || '').indexOf(q) !== -1;
+        r.hidden = !match;
+        if (match) shown++;
+      });
+      if (empty) empty.hidden = shown !== 0;
+    });
+  })();
+</script>
 
 <!-- ===== Existing Challenges ===== -->
 <h2>Existing Challenges</h2>

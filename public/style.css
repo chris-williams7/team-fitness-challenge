@@ -708,3 +708,101 @@ h2 {
 .challenge-item.is-upcoming:hover {
 	opacity: 1;
 }
+
+/* ===== Team Members: compact collapsible rows ===== */
+.count-pill {
+  font-size: 0.8rem;
+  background: var(--border);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 1px 9px;
+  vertical-align: middle;
+}
+.user-admin-list { display: grid; gap: 8px; }
+
+.user-row { padding: 0; }
+.user-row-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.user-row-summary::-webkit-details-marker { display: none; }
+.user-row-summary:hover { background: rgba(255,255,255,0.03); border-radius: 10px; }
+.user-row-name { font-weight: 600; font-size: 1.02rem; min-width: 120px; }
+.user-row-tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.no-team { font-size: 0.85rem; }
+
+.role-badge {
+  font-size: 0.75rem;
+  border-radius: 999px;
+  padding: 2px 10px;
+  background: var(--border);
+  color: var(--text-muted);
+}
+.role-badge.is-admin { background: rgba(245,158,11,0.15); color: var(--gold); }
+
+.user-row-toggle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.user-row-toggle::after { content: " ▾"; }
+.user-row[open] .user-row-toggle::after { content: " ▴"; }
+.user-row[open] .user-row-toggle { color: var(--text); border-color: var(--primary); }
+
+.user-row-body { padding: 4px 16px 16px; }
+.user-edit-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.user-edit-grid .field { display: flex; flex-direction: column; gap: 4px; }
+.user-edit-grid .field span { font-size: 0.78rem; color: var(--text-muted); }
+.user-edit-grid .field input,
+.user-edit-grid .field select {
+  background: #020617;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.user-edit-grid .field input[name="username"] { width: 200px; max-width: 100%; }
+.field-check { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); cursor: pointer; padding-bottom: 8px; }
+
+.user-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.user-row-actions input[type="password"] {
+  background: #020617; color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+}
+
+/* Member search box */
+.member-search {
+  width: 100%;
+  max-width: 360px;
+  background: #020617;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  margin: 4px 0 12px;
+  font-size: 0.95rem;
+}
+.member-search:focus { outline: none; border-color: var(--primary); }
+.member-search-empty { margin: 0 0 12px; }
